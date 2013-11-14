@@ -1,18 +1,48 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 
 module Main where
 
 
 import           Control.Lens
+import           Control.Monad
+import           Data.Aeson
+import           Data.Aeson.TH
 import           Data.Attoparsec.ByteString
 import qualified Data.ByteString.Char8      as C8
+import qualified Data.Char                  as C
 import qualified Data.Text                  as T
 import           Data.Thyme
 import           Data.Thyme.LocalTime
 import           Options.Applicative
 import qualified Options.Applicative        as O
 import           System.Locale
+
+
+jsonTimeFormat :: String
+jsonTimeFormat = "%FT%T%QZ"
+
+
+instance ToJSON UTCTime where
+    toJSON time = String . T.pack $ formatTime defaultTimeLocale jsonTimeFormat time
+
+instance FromJSON UTCTime where
+    parseJSON (String s) =
+        maybe mzero return . parseTime defaultTimeLocale jsonTimeFormat $ T.unpack s
+    parseJSON _          = mzero
+
+data TimeLog
+        = TimeLog
+        { _tlogName  :: T.Text
+        , _tlogStart :: UTCTime
+        , _tlogEnd   :: Maybe UTCTime
+        , _tlogTags  :: Maybe [T.Text]
+        , _tlogNotes :: Maybe [T.Text]
+        } deriving (Show)
+$(makeLenses ''TimeLog)
+$(deriveJSON defaultOptions { fieldLabelModifier = map C.toLower . drop 5 }
+             ''TimeLog)
 
 
 main :: IO ()
