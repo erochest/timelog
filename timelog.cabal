@@ -19,6 +19,10 @@ executable timelog
   main-is:             TimeLog.hs
   -- other-modules:       
   build-depends:       base >=4.6 && <4.7
+                     , thyme
+                     , old-locale
+                     , attoparsec
+                     , bytestring
                      , text
                      , optparse-applicative
                      , aeson
@@ -33,6 +37,7 @@ test-suite timelog-specs
   build-depends:         base       == 4.6.*
                        , hspec      == 1.7.*
                        , QuickCheck == 2.6.*
+  default-language:    Haskell2010
 
 source-repository this
   type:                git
