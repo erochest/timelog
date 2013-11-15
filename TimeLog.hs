@@ -100,6 +100,17 @@ tlog (On{..}) works = do
              \ before beginning anything new."
     start <- scriptIO $ maybe getCurrentTime return startTime
     return $ works & work %~ (S.|> TimeLog projectName start Nothing Nothing Nothing)
+tlog (Fin{..}) works =
+    case S.viewr (_work works) of
+        S.EmptyR -> left "You're not working on anything. You have to start things before you can finish them."
+        s S.:> current -> do
+            unless (isNothing $ _tlogEnd current) $
+                left "You're not working on anything. You have to start things before you can finish them."
+            let start = fromMaybe (_tlogStart current) startTime
+            end <- scriptIO $ maybe getCurrentTime return endTime
+            right . Work $ s S.|> current { _tlogStart = start
+                                          , _tlogEnd   = Just end
+                                          }
 
 
 main :: IO ()
@@ -135,15 +146,25 @@ tlogConfig tz =
 tlogCom :: TimeZone -> O.Parser TLogCommand
 tlogCom tz =
         subparser
-            (command "on" (info (   On
-                                <$> nullOption (  short 'p' <> long "project" <> metavar "PROJECT_NAME"
-                                               <> reader (return . T.pack)
-                                               <> help "The name of the project.")
-                                <*> nullOption (  short 's' <> long "start-time" <> metavar "TIME"
-                                               <> value Nothing
-                                               <> eitherReader (fmap Just <$> timeReader tz)
-                                               <> help "The starting time for the project (YYYY-MM-DDTHH:MM)."))
-                                (progDesc "Start on a task.")))
+            (  command "on"  (info (   On
+                                    <$> nullOption (  short 'p' <> long "project" <> metavar "PROJECT_NAME"
+                                                   <> reader (return . T.pack)
+                                                   <> help "The name of the project.")
+                                    <*> nullOption (  short 's' <> long "start-time" <> metavar "TIME"
+                                                   <> value Nothing
+                                                   <> eitherReader (fmap Just <$> timeReader tz)
+                                                   <> help "The starting time for the project (YYYY-MM-DDTHH:MM)."))
+                                    (progDesc "Start on a task."))
+            <> command "fin" (info (   Fin
+                                    <$> nullOption (  short 's' <> long "start-time" <> metavar "TIME"
+                                                   <> value Nothing
+                                                   <> eitherReader (fmap Just <$> timeReader tz)
+                                                   <> help "The starting time for the project (YYYY-MM-DDTHH:MM.")
+                                    <*> nullOption (  short 'e' <> long "end-time" <> metavar "TIME"
+                                                   <> value Nothing
+                                                   <> eitherReader (fmap Just <$> timeReader tz)
+                                                   <> help "Set the ending time for the project (YYYY-MM-DDTHH:MM."))
+                                    (progDesc "Change the starting time for the task.")))
 
 -- | Data for command-line modes and configuration.
 data TLogConfig
@@ -153,8 +174,11 @@ data TLogConfig
         deriving (Show)
 
 data TLogCommand
-        = On { projectName :: T.Text
-             , startTime   :: Maybe UTCTime
-             }
+        = On  { projectName :: T.Text
+              , startTime   :: Maybe UTCTime
+              }
+        | Fin { startTime :: Maybe UTCTime
+              , endTime :: Maybe UTCTime
+              }
         deriving (Show)
 
