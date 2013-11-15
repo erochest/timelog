@@ -20,6 +20,7 @@ executable timelog
   -- other-modules:       
   build-depends:       base >=4.6 && <4.7
                      , containers
+                     , unordered-containers
                      , vector
                      , vector-space
                      , transformers

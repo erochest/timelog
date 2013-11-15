@@ -21,6 +21,7 @@ import qualified Data.ByteString.Char8      as C8
 import qualified Data.ByteString.Lazy       as BSL
 import qualified Data.Char                  as C
 import qualified Data.Foldable              as F
+import qualified Data.HashSet               as HS
 import qualified Data.Sequence              as S
 import qualified Data.Text                  as T
 import           Data.Thyme
@@ -41,6 +42,8 @@ jsonTimeFormat :: String
 jsonTimeFormat = "%FT%T%QZ"
 
 
+data Hole = Hole
+
 instance ToJSON UTCTime where
     toJSON time = String . T.pack $ formatTime defaultTimeLocale jsonTimeFormat time
 
@@ -52,8 +55,6 @@ instance FromJSON UTCTime where
 instance ToJSON a => ToJSON (S.Seq a) where
     toJSON = Array . V.fromList . map toJSON . F.toList
 
-data Hole = Hole
-
 instance FromJSON a => FromJSON (S.Seq a) where
     parseJSON (Array v) = S.fromList . V.toList <$> V.mapM parseJSON v
     parseJSON _         = mzero
@@ -64,7 +65,7 @@ data TimeLog
         { _tlogName  :: T.Text
         , _tlogStart :: UTCTime
         , _tlogEnd   :: Maybe UTCTime
-        , _tlogTags  :: Maybe [T.Text]
+        , _tlogTags  :: Maybe (HS.HashSet T.Text)
         , _tlogNotes :: Maybe [T.Text]
         } deriving (Show)
 $(makeLenses ''TimeLog)
@@ -94,6 +95,28 @@ ensureFile fileName = do
 withJsonLog :: FilePath -> (WorkList -> Script WorkList) -> Script ()
 withJsonLog filename f = writeWorkList filename =<< f =<< readWorkList filename
 
+onCurrent :: String -> (TimeLog -> Script TimeLog) -> WorkList -> Script WorkList
+onCurrent errorMsg f works =
+    case S.viewr (_work works) of
+        S.EmptyR -> left errorMsg
+        s S.:> current ->
+            case _tlogEnd current of
+                Just _  -> left errorMsg
+                Nothing -> right . Work . (s S.|>) =<< f current
+
+lastCases :: Script ()
+          -> (TimeLog -> Script())
+          -> (TimeLog -> Script ())
+          -> WorkList
+          -> Script ()
+lastCases none current done works =
+    case S.viewr (_work works) of
+        S.EmptyR -> none
+        _ S.:> task ->
+            case _tlogEnd task of
+                Nothing  -> current task
+                Just end -> done task
+
 -- | This is the primary controller function.
 tlog :: TLogCommand -> WorkList -> Script WorkList
 tlog (On{..}) works = do
@@ -102,37 +125,44 @@ tlog (On{..}) works = do
              \ before beginning anything new."
     start <- scriptIO $ maybe getCurrentTime return startTime
     right $ works & work %~ (S.|> TimeLog projectName start Nothing Nothing Nothing)
+
 tlog (Fin{..}) works =
-    case S.viewr (_work works) of
-        S.EmptyR -> left "You're not working on anything. You have to start things before you can finish them."
-        s S.:> current -> do
-            unless (isNothing $ _tlogEnd current) $
-                left "You're not working on anything. You have to start things before you can finish them."
-            let start = fromMaybe (_tlogStart current) startTime
-            end <- scriptIO $ maybe getCurrentTime return endTime
-            right . Work $ s S.|> current { _tlogStart = start
-                                          , _tlogEnd   = Just end
-                                          }
+    onCurrent "You're not working on anything. You have to start things before you can finish them."
+              (\current -> do
+                    let start = fromMaybe (_tlogStart current) startTime
+                    end <- scriptIO $ maybe getCurrentTime return endTime
+                    right $ current { _tlogStart = start
+                                    , _tlogEnd   = Just end
+                                    })
+              works
+
 tlog Status works = do
-    -- Surely this can be cleaned up some. Nasty, nasty, nasty.
-    scriptIO $ case S.viewr (_work works) of
-        S.EmptyR -> putStrLn "You've never worked on anything."
-        _ S.:> current ->
-            case _tlogEnd current of
-                Just end -> putStrLn $  "You last worked on '"
-                                    <> T.unpack (_tlogName current)
-                                    <> "' for "
-                                    <> humanTimeDiff (end .-. _tlogStart current)
-                                    <> "."
-                Nothing -> do
+    -- Not sure if this is an improvement or not.
+    lastCases (scriptIO $ putStrLn "You've never worked on anything.")
+              (\current -> scriptIO $ do
                     now <- getCurrentTime
                     putStrLn $  "You started working on '"
                              <> T.unpack (_tlogName current)
                              <> "' "
                              <> humanRelTime (_tlogStart current) now
-                             <> "."
+                             <> ".")
+              (\done -> scriptIO $ do
+                    end <- maybe getCurrentTime return $ _tlogEnd done
+                    putStrLn $  "You last worked on '"
+                             <> T.unpack (_tlogName done)
+                             <> "' for "
+                             <> humanTimeDiff (end .-. _tlogStart done)
+                             <> ".")
+              works
     return works
 
+tlog (Tag{..}) works =
+    onCurrent "No current task."
+              (\current ->
+                    let tags' = HS.fromList tags
+                        cTags = maybe tags' (<> tags') $ _tlogTags current
+                    in  right $ current { _tlogTags = Just cTags })
+              works
 
 main :: IO ()
 main = do
@@ -188,6 +218,11 @@ tlogCom tz =
                                     (progDesc "Change the starting time for the task."))
             <> command "status" (info (pure Status)
                                       (progDesc "Report on the status."))
+            <> command "tag" (info (   Tag
+                                   <$> some (O.argument (Just . T.pack)
+                                                        (  metavar "TAG(S)"
+                                                        <> help "Tags to add to the current task.")))
+                                   (progDesc "Add tags to the current task."))
             )
 
 -- | Data for command-line modes and configuration.
@@ -205,5 +240,6 @@ data TLogCommand
               , endTime   :: Maybe UTCTime
               }
         | Status
+        | Tag { tags :: [T.Text] }
         deriving (Show)
 
