@@ -26,6 +26,7 @@ import           Data.Thyme
 import           Data.Thyme.LocalTime
 import qualified Data.Vector                as V
 import           Filesystem
+import qualified Filesystem                 as FS
 import           Filesystem.Path.CurrentOS
 import           Options.Applicative        hiding ((&))
 import qualified Options.Applicative        as O
@@ -73,13 +74,23 @@ data WorkList = Work { _work :: S.Seq TimeLog }
 $(makeLenses ''WorkList)
 $(deriveJSON defaultOptions { fieldLabelModifier = drop 1 } ''WorkList)
 
+readWorkList :: FilePath -> Script WorkList
+readWorkList filename =   ensureFile filename
+                      >>  (scriptIO . BSL.readFile $ encodeString filename)
+                      >>= hoistEither . eitherDecode'
+
+writeWorkList :: FilePath -> WorkList -> Script ()
+writeWorkList filepath =
+        scriptIO . FS.writeFile filepath . BSL.toStrict . encodePretty' defConfig
+
+ensureFile :: FilePath -> Script ()
+ensureFile fileName = do
+    exists <- scriptIO $ isFile fileName
+    unless exists $
+        writeWorkList fileName $ Work S.empty
+
 withJsonLog :: FilePath -> (WorkList -> Script WorkList) -> Script ()
-withJsonLog filename f =
-        scriptIO (BSL.readFile filename')
-    >>= hoistEither . eitherDecode'
-    >>= f
-    >>= scriptIO . BS.writeFile filename' . BSL.toStrict . encodePretty' defConfig
-    where filename' = encodeString filename
+withJsonLog filename f = writeWorkList filename =<< f =<< readWorkList filename
 
 -- | This is the primary controller function.
 tlog :: TLogCommand -> WorkList -> Script WorkList
@@ -97,7 +108,7 @@ main = do
     home <- getHomeDirectory
     cfg  <- execParser (opts tz)
     let jsonFile = fromMaybe (home </> ".ti-sheet") $ tlogJsonFile cfg
-    runScript $ withJsonLog (home </> ".ti-sheet") . tlog $ tlogCommand cfg
+    runScript $ withJsonLog jsonFile . tlog $ tlogCommand cfg
     where opts tz = info (helper <*> tlogConfig tz)
                          (  fullDesc
                          <> progDesc "A simple time-tracking app."
