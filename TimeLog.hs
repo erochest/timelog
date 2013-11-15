@@ -108,7 +108,7 @@ lastCases :: Script ()
           -> (TimeLog -> Script())
           -> (TimeLog -> Script ())
           -> WorkList
-          -> Script ()
+          -> Script WorkList
 lastCases none current done works =
     case S.viewr (_work works) of
         S.EmptyR -> none
@@ -116,6 +116,10 @@ lastCases none current done works =
             case _tlogEnd task of
                 Nothing  -> current task
                 Just end -> done task
+    >> return works
+
+onJust :: Applicative a => (x -> a ()) -> Maybe x -> a ()
+onJust = maybe (pure ())
 
 -- | This is the primary controller function.
 tlog :: TLogCommand -> WorkList -> Script WorkList
@@ -136,7 +140,7 @@ tlog (Fin{..}) works =
                                     })
               works
 
-tlog Status works = do
+tlog Status works =
     -- Not sure if this is an improvement or not.
     lastCases (scriptIO $ putStrLn "You've never worked on anything.")
               (\current -> scriptIO $ do
@@ -154,7 +158,6 @@ tlog Status works = do
                              <> humanTimeDiff (end .-. _tlogStart done)
                              <> ".")
               works
-    return works
 
 tlog (Tag{..}) works =
     onCurrent "No current task."
@@ -170,6 +173,25 @@ tlog (Note{..}) works =
                     let cNotes = maybe (S.singleton note) (S.|> note) $ _tlogNotes current
                     in  right $ current { _tlogNotes = Just cNotes })
               works
+
+tlog Info works =
+    lastCases
+        (scriptIO $ putStrLn "No time logs.")
+        (\current -> scriptIO $ printInfo True current =<< getCurrentTime)
+        (\done    -> scriptIO . onJust (printInfo False done) $ _tlogEnd done)
+        works
+    where printInfo isCurrent TimeLog{..} time = do
+            putStrLn . ("Name: " <>) $ T.unpack _tlogName
+            onJust (putStrLn . ("Tags: " <>) . T.unpack . T.intercalate ", " . HS.toList)
+                   _tlogTags
+            when (isJust _tlogNotes) $ do
+                putStrLn "Notes:"
+                onJust (mapM_ (putStrLn . ("  " <>) . T.unpack) . F.toList) _tlogNotes
+                putStrLn ""
+            putStrLn $ "Start: " <> humanRelTime _tlogStart time
+            unless isCurrent $
+                maybe (return ()) (\e -> putStrLn $ "End: " <> humanRelTime e time) _tlogEnd
+            putStrLn . ("Duration: " <>) . humanTimeDiff $ time .-. _tlogStart
 
 main :: IO ()
 main = do
@@ -235,6 +257,8 @@ tlogCom tz =
                                                    (  metavar "NOTE"
                                                    <> help "A note to add to the current task."))
                                     (progDesc "Add a note to the current task."))
+            <> command "info" (info (pure Info)
+                                    (progDesc "Print information about the current task."))
             )
 
 -- | Data for command-line modes and configuration.
@@ -254,5 +278,6 @@ data TLogCommand
         | Status
         | Tag  { tags :: [T.Text] }
         | Note { note :: T.Text }
+        | Info
         deriving (Show)
 
