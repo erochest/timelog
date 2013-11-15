@@ -19,9 +19,12 @@ import qualified Data.ByteString            as BS
 import qualified Data.ByteString.Char8      as C8
 import qualified Data.ByteString.Lazy       as BSL
 import qualified Data.Char                  as C
+import qualified Data.Foldable              as F
+import qualified Data.Sequence              as S
 import qualified Data.Text                  as T
 import           Data.Thyme
 import           Data.Thyme.LocalTime
+import qualified Data.Vector                as V
 import           Filesystem
 import           Filesystem.Path.CurrentOS
 import           Options.Applicative        hiding ((&))
@@ -43,6 +46,16 @@ instance FromJSON UTCTime where
         maybe mzero return . parseTime defaultTimeLocale jsonTimeFormat $ T.unpack s
     parseJSON _          = mzero
 
+instance ToJSON a => ToJSON (S.Seq a) where
+    toJSON = Array . V.fromList . map toJSON . F.toList
+
+data Hole = Hole
+
+instance FromJSON a => FromJSON (S.Seq a) where
+    parseJSON (Array v) = S.fromList . V.toList <$> V.mapM parseJSON v
+    parseJSON _         = mzero
+
+
 data TimeLog
         = TimeLog
         { _tlogName  :: T.Text
@@ -57,7 +70,7 @@ $(deriveJSON defaultOptions { fieldLabelModifier = map C.toLower . drop 5 }
 
 -- TODO: Use a Data.Sequence (from containers) for this. Will need to define
 -- {From,To}JSON for it.
-data WorkList = Work { _work :: [TimeLog] }
+data WorkList = Work { _work :: S.Seq TimeLog }
               deriving (Show)
 $(makeLenses ''WorkList)
 $(deriveJSON defaultOptions { fieldLabelModifier = drop 1 } ''WorkList)
@@ -77,7 +90,7 @@ tlog (On{..}) works = do
         left "You're done working on something. Finish your current task\
              \ before beginning anything new."
     start <- scriptIO $ maybe getCurrentTime return startTime
-    return $ works & work <>~ [TimeLog projectName start Nothing Nothing Nothing]
+    return $ works & work %~ (S.|> TimeLog projectName start Nothing Nothing Nothing)
 
 
 main :: IO ()

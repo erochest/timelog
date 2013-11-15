@@ -19,6 +19,8 @@ executable timelog
   main-is:             TimeLog.hs
   -- other-modules:       
   build-depends:       base >=4.6 && <4.7
+                     , containers
+                     , vector
                      , transformers
                      , thyme
                      , old-locale
