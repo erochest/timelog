@@ -14,6 +14,7 @@ import           Data.Aeson
 import qualified Data.Aeson                 as A
 import           Data.Aeson.Encode.Pretty
 import           Data.Aeson.TH
+import           Data.AffineSpace           ((.-.))
 import           Data.Attoparsec.ByteString
 import qualified Data.ByteString            as BS
 import qualified Data.ByteString.Char8      as C8
@@ -23,6 +24,7 @@ import qualified Data.Foldable              as F
 import qualified Data.Sequence              as S
 import qualified Data.Text                  as T
 import           Data.Thyme
+import           Data.Thyme.Format.Human
 import           Data.Thyme.LocalTime
 import qualified Data.Vector                as V
 import           Filesystem
@@ -99,7 +101,7 @@ tlog (On{..}) works = do
         left "You're done working on something. Finish your current task\
              \ before beginning anything new."
     start <- scriptIO $ maybe getCurrentTime return startTime
-    return $ works & work %~ (S.|> TimeLog projectName start Nothing Nothing Nothing)
+    right $ works & work %~ (S.|> TimeLog projectName start Nothing Nothing Nothing)
 tlog (Fin{..}) works =
     case S.viewr (_work works) of
         S.EmptyR -> left "You're not working on anything. You have to start things before you can finish them."
@@ -111,6 +113,25 @@ tlog (Fin{..}) works =
             right . Work $ s S.|> current { _tlogStart = start
                                           , _tlogEnd   = Just end
                                           }
+tlog Status works = do
+    -- Surely this can be cleaned up some. Nasty, nasty, nasty.
+    scriptIO $ case S.viewr (_work works) of
+        S.EmptyR -> putStrLn "You've never worked on anything."
+        _ S.:> current ->
+            case _tlogEnd current of
+                Just end -> putStrLn $  "You last worked on '"
+                                    <> T.unpack (_tlogName current)
+                                    <> "' for "
+                                    <> humanTimeDiff (end .-. _tlogStart current)
+                                    <> "."
+                Nothing -> do
+                    now <- getCurrentTime
+                    putStrLn $  "You started working on '"
+                             <> T.unpack (_tlogName current)
+                             <> "' "
+                             <> humanRelTime (_tlogStart current) now
+                             <> "."
+    return works
 
 
 main :: IO ()
@@ -164,7 +185,10 @@ tlogCom tz =
                                                    <> value Nothing
                                                    <> eitherReader (fmap Just <$> timeReader tz)
                                                    <> help "Set the ending time for the project (YYYY-MM-DDTHH:MM."))
-                                    (progDesc "Change the starting time for the task.")))
+                                    (progDesc "Change the starting time for the task."))
+            <> command "status" (info (pure Status)
+                                      (progDesc "Report on the status."))
+            )
 
 -- | Data for command-line modes and configuration.
 data TLogConfig
@@ -178,7 +202,8 @@ data TLogCommand
               , startTime   :: Maybe UTCTime
               }
         | Fin { startTime :: Maybe UTCTime
-              , endTime :: Maybe UTCTime
+              , endTime   :: Maybe UTCTime
               }
+        | Status
         deriving (Show)
 

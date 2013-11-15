@@ -21,6 +21,7 @@ executable timelog
   build-depends:       base >=4.6 && <4.7
                      , containers
                      , vector
+                     , vector-space
                      , transformers
                      , thyme
                      , old-locale
