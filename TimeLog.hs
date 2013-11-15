@@ -66,7 +66,7 @@ data TimeLog
         , _tlogStart :: UTCTime
         , _tlogEnd   :: Maybe UTCTime
         , _tlogTags  :: Maybe (HS.HashSet T.Text)
-        , _tlogNotes :: Maybe [T.Text]
+        , _tlogNotes :: Maybe (S.Seq T.Text)
         } deriving (Show)
 $(makeLenses ''TimeLog)
 $(deriveJSON defaultOptions { fieldLabelModifier = map C.toLower . drop 5 }
@@ -164,6 +164,13 @@ tlog (Tag{..}) works =
                     in  right $ current { _tlogTags = Just cTags })
               works
 
+tlog (Note{..}) works =
+    onCurrent "No current task."
+              (\current ->
+                    let cNotes = maybe (S.singleton note) (S.|> note) $ _tlogNotes current
+                    in  right $ current { _tlogNotes = Just cNotes })
+              works
+
 main :: IO ()
 main = do
     tz   <- getCurrentTimeZone
@@ -223,6 +230,11 @@ tlogCom tz =
                                                         (  metavar "TAG(S)"
                                                         <> help "Tags to add to the current task.")))
                                    (progDesc "Add tags to the current task."))
+            <> command "note" (info (   Note
+                                    <$> O.argument (Just . T.pack)
+                                                   (  metavar "NOTE"
+                                                   <> help "A note to add to the current task."))
+                                    (progDesc "Add a note to the current task."))
             )
 
 -- | Data for command-line modes and configuration.
@@ -233,13 +245,14 @@ data TLogConfig
         deriving (Show)
 
 data TLogCommand
-        = On  { projectName :: T.Text
-              , startTime   :: Maybe UTCTime
-              }
-        | Fin { startTime :: Maybe UTCTime
-              , endTime   :: Maybe UTCTime
-              }
+        = On   { projectName :: T.Text
+               , startTime   :: Maybe UTCTime
+               }
+        | Fin  { startTime :: Maybe UTCTime
+               , endTime   :: Maybe UTCTime
+               }
         | Status
-        | Tag { tags :: [T.Text] }
+        | Tag  { tags :: [T.Text] }
+        | Note { note :: T.Text }
         deriving (Show)
 
