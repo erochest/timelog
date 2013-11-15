@@ -19,13 +19,18 @@ executable timelog
   main-is:             TimeLog.hs
   -- other-modules:       
   build-depends:       base >=4.6 && <4.7
+                     , transformers
                      , thyme
                      , old-locale
                      , attoparsec
                      , bytestring
+                     , system-filepath
+                     , system-fileio
+                     , errors
                      , text
                      , optparse-applicative
                      , aeson
+                     , aeson-pretty
                      , lens
                      , lens-aeson
   default-language:    Haskell2010

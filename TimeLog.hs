@@ -1,22 +1,34 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
 
 module Main where
 
 
+import           Control.Error
 import           Control.Lens
+import qualified Control.Lens               as L
 import           Control.Monad
+import           Control.Monad.IO.Class
 import           Data.Aeson
+import qualified Data.Aeson                 as A
+import           Data.Aeson.Encode.Pretty
 import           Data.Aeson.TH
 import           Data.Attoparsec.ByteString
+import qualified Data.ByteString            as BS
 import qualified Data.ByteString.Char8      as C8
+import qualified Data.ByteString.Lazy       as BSL
 import qualified Data.Char                  as C
 import qualified Data.Text                  as T
 import           Data.Thyme
 import           Data.Thyme.LocalTime
+import           Filesystem
+import           Filesystem.Path.CurrentOS
 import           Options.Applicative
 import qualified Options.Applicative        as O
+import           Prelude                    hiding (FilePath)
+import           System.Exit
 import           System.Locale
 
 
@@ -44,11 +56,33 @@ $(makeLenses ''TimeLog)
 $(deriveJSON defaultOptions { fieldLabelModifier = map C.toLower . drop 5 }
              ''TimeLog)
 
+data WorkList = Work { _work :: [TimeLog] }
+              deriving (Show)
+$(makeLenses ''WorkList)
+$(deriveJSON defaultOptions { fieldLabelModifier = drop 1 } ''WorkList)
+
+withJsonLog :: FilePath -> (WorkList -> Script WorkList) -> Script ()
+withJsonLog filename f =
+        scriptIO (BSL.readFile filename')
+    >>= hoistEither . eitherDecode'
+    >>= f
+    >>= scriptIO . BS.writeFile filename' . BSL.toStrict . encodePretty' defConfig
+    where filename' = encodeString filename
+
+-- | This is the primary controller function.
+-- TODO: Check that user isn't currently working on something else before `On`.
+tlog :: TLogCommand -> WorkList -> Script WorkList
+tlog (On{..}) works = do
+    start <- scriptIO $ maybe getCurrentTime return startTime
+    return $ works L.& work %~ (++ [TimeLog projectName start Nothing Nothing Nothing])
+
 
 main :: IO ()
 main = do
-    tz <- getCurrentTimeZone
-    execParser (opts tz) >>= print
+    tz   <- getCurrentTimeZone
+    home <- getHomeDirectory
+    cfg  <- execParser (opts tz)
+    runScript $ withJsonLog (home </> ".ti-sheet") $ tlog cfg
     where opts tz = info (helper <*> tlogCommand tz)
                          (  fullDesc
                          <> progDesc "A simple time-tracking app."
@@ -75,6 +109,7 @@ tlogCommand tz =
                        <> help "The starting time for the project (YYYY-MM-DDTHH:MM).")
 
 -- | Data for command-line modes and configuration.
+-- TODO: Configuration (json file, at least).
 data TLogCommand
         = On { projectName :: T.Text
              , startTime   :: Maybe UTCTime
