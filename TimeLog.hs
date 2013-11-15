@@ -68,8 +68,6 @@ $(makeLenses ''TimeLog)
 $(deriveJSON defaultOptions { fieldLabelModifier = map C.toLower . drop 5 }
              ''TimeLog)
 
--- TODO: Use a Data.Sequence (from containers) for this. Will need to define
--- {From,To}JSON for it.
 data WorkList = Work { _work :: S.Seq TimeLog }
               deriving (Show)
 $(makeLenses ''WorkList)
@@ -98,8 +96,9 @@ main = do
     tz   <- getCurrentTimeZone
     home <- getHomeDirectory
     cfg  <- execParser (opts tz)
-    runScript $ withJsonLog (home </> ".ti-sheet") $ tlog cfg
-    where opts tz = info (helper <*> tlogCommand tz)
+    let jsonFile = fromMaybe (home </> ".ti-sheet") $ tlogJsonFile cfg
+    runScript $ withJsonLog (home </> ".ti-sheet") . tlog $ tlogCommand cfg
+    where opts tz = info (helper <*> tlogConfig tz)
                          (  fullDesc
                          <> progDesc "A simple time-tracking app."
                          <> header  "timelog - track your time")
@@ -112,20 +111,36 @@ timeReader tz = fmap (snd . view (from zonedTime) . flip ZonedTime tz . buildTim
               . C8.pack
     where format = iso8601DateFormat (Just "%H:%M")
 
+-- | CLI configuration for the program.
+tlogConfig :: TimeZone -> O.Parser TLogConfig
+tlogConfig tz =
+            TLogConfig
+        <$> nullOption (  short 'j' <> long "json" <> metavar "JSON_STORAGE" <> value Nothing
+                       <> reader (return . Just . decodeString)
+                       <> help "The JSON file storing the time log.")
+        <*> tlogCom tz
+
 -- | Reading commands and configuration from the command line.
-tlogCommand :: TimeZone -> O.Parser TLogCommand
-tlogCommand tz =
-            On
-        <$> nullOption (  short 'p' <> long "project" <> metavar "PROJECT_NAME"
-                       <> reader (return . T.pack)
-                       <> help "The name of the project.")
-        <*> nullOption (  short 's' <> long "start-time" <> metavar "TIME"
-                       <> value Nothing
-                       <> eitherReader (fmap Just <$> timeReader tz)
-                       <> help "The starting time for the project (YYYY-MM-DDTHH:MM).")
+tlogCom :: TimeZone -> O.Parser TLogCommand
+tlogCom tz =
+        subparser
+            (command "on" (info (   On
+                                <$> nullOption (  short 'p' <> long "project" <> metavar "PROJECT_NAME"
+                                               <> reader (return . T.pack)
+                                               <> help "The name of the project.")
+                                <*> nullOption (  short 's' <> long "start-time" <> metavar "TIME"
+                                               <> value Nothing
+                                               <> eitherReader (fmap Just <$> timeReader tz)
+                                               <> help "The starting time for the project (YYYY-MM-DDTHH:MM)."))
+                                (progDesc "Start on a task.")))
 
 -- | Data for command-line modes and configuration.
--- TODO: Configuration (json file, at least).
+data TLogConfig
+        = TLogConfig { tlogJsonFile :: Maybe FilePath
+                     , tlogCommand  :: TLogCommand
+                     }
+        deriving (Show)
+
 data TLogCommand
         = On { projectName :: T.Text
              , startTime   :: Maybe UTCTime
