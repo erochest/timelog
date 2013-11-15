@@ -8,7 +8,6 @@ module Main where
 
 import           Control.Error
 import           Control.Lens
-import qualified Control.Lens               as L
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Aeson
@@ -25,7 +24,7 @@ import           Data.Thyme
 import           Data.Thyme.LocalTime
 import           Filesystem
 import           Filesystem.Path.CurrentOS
-import           Options.Applicative
+import           Options.Applicative        hiding ((&))
 import qualified Options.Applicative        as O
 import           Prelude                    hiding (FilePath)
 import           System.Exit
@@ -56,6 +55,8 @@ $(makeLenses ''TimeLog)
 $(deriveJSON defaultOptions { fieldLabelModifier = map C.toLower . drop 5 }
              ''TimeLog)
 
+-- TODO: Use a Data.Sequence (from containers) for this. Will need to define
+-- {From,To}JSON for it.
 data WorkList = Work { _work :: [TimeLog] }
               deriving (Show)
 $(makeLenses ''WorkList)
@@ -70,11 +71,13 @@ withJsonLog filename f =
     where filename' = encodeString filename
 
 -- | This is the primary controller function.
--- TODO: Check that user isn't currently working on something else before `On`.
 tlog :: TLogCommand -> WorkList -> Script WorkList
 tlog (On{..}) works = do
+    unless (and $ works ^.. work . traverse . tlogEnd . to isJust) $
+        left "You're done working on something. Finish your current task\
+             \ before beginning anything new."
     start <- scriptIO $ maybe getCurrentTime return startTime
-    return $ works L.& work %~ (++ [TimeLog projectName start Nothing Nothing Nothing])
+    return $ works & work <>~ [TimeLog projectName start Nothing Nothing Nothing]
 
 
 main :: IO ()
