@@ -17,7 +17,9 @@ cabal-version:       >=1.10
 
 executable timelog
   main-is:             TimeLog.hs
-  -- other-modules:       
+  other-modules:       TimeLog.Commands
+                     , TimeLog.Types
+                     , TimeLog.Utils
   build-depends:       base >=4.6 && <4.7
                      , containers
                      , unordered-containers
