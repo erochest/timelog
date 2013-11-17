@@ -88,5 +88,10 @@ tlogCom tz =
                                     (progDesc "Add a note to the current task."))
             <> command "info" (info (pure Info)
                                     (progDesc "Print information about the current task."))
+            <> command "log" (info (   Log
+                                   <$> nullOption (  short 'n' <> metavar "N" <> value Nothing
+                                                  <> reader (fmap Just . auto)
+                                                  <> help "The number of items to print."))
+                                   (progDesc "List the work log."))
             )
 

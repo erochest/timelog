@@ -7,6 +7,7 @@ module TimeLog.Commands
     ) where
 
 
+import           Control.Applicative
 import           Control.Error
 import           Control.Lens
 import           Control.Monad
@@ -19,6 +20,7 @@ import qualified Data.Sequence           as S
 import qualified Data.Text               as T
 import           Data.Thyme
 import           Data.Thyme.Format.Human
+import           System.Locale
 import           TimeLog.Types
 import           TimeLog.Utils
 
@@ -94,5 +96,27 @@ tlog Info works =
             unless isCurrent $
                 maybe (return ()) (\e -> putStrLn $ "End: " <> humanRelTime e time) _tlogEnd
             putStrLn . ("Duration: " <>) . humanTimeDiff $ time .-. _tlogStart
+
+tlog (Log{..}) works = do
+    scriptIO . mapM_ (putStrLn . T.unpack . formatTimeLog)
+             . F.toList
+             . taker logN
+             $ _work works
+    return works
+    where formatTimeLog :: TimeLog -> T.Text
+          formatTimeLog (TimeLog{..}) =
+              mconcat $ catMaybes [ Just _tlogName, Just "\n"
+                                  , Just $ "  " <> ft _tlogStart, Just " - ", ft <$> _tlogEnd, Just "\n"
+                                  , ("  " <>) . T.intercalate ", " . F.toList <$> _tlogTags
+                                  , const "\n" <$> _tlogTags
+                                  , T.intercalate "\n" . map ("    " <>) . F.toList <$> _tlogNotes
+                                  , const "\n" <$> _tlogNotes
+                                  ]
+          ft :: UTCTime -> T.Text
+          ft = T.pack . formatTime defaultTimeLocale "%c"
+
+          taker :: Maybe Int -> S.Seq TimeLog -> S.Seq TimeLog
+          taker Nothing  = id
+          taker (Just n) = S.take n
 
 

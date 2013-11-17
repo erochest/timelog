@@ -87,5 +87,6 @@ data TLogCommand
         | Tag  { tags :: [T.Text] }
         | Note { note :: T.Text }
         | Info
+        | Log  { logN :: Maybe Int }
         deriving (Show)
 
