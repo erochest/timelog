@@ -105,18 +105,23 @@ tlog (Log{..}) works = do
     return works
     where formatTimeLog :: TimeLog -> T.Text
           formatTimeLog (TimeLog{..}) =
-              mconcat $ catMaybes [ Just _tlogName, Just "\n"
-                                  , Just $ "  " <> ft _tlogStart, Just " - ", ft <$> _tlogEnd, Just "\n"
-                                  , ("  " <>) . T.intercalate ", " . F.toList <$> _tlogTags
-                                  , const "\n" <$> _tlogTags
-                                  , T.intercalate "\n" . map ("    " <>) . F.toList <$> _tlogNotes
-                                  , const "\n" <$> _tlogNotes
-                                  ]
+              mconcat $
+              catMaybes [ Just _tlogName, Just "\n"
+                        , Just $ "  " <> ft _tlogStart
+                        , Just " - "
+                        , ft <$> _tlogEnd
+                        , Just "\n"
+                        , nl . ("  " <>) . T.intercalate ", " . F.toList <$> _tlogTags
+                        , nl . T.intercalate "\n" . map ("    " <>) . F.toList <$> _tlogNotes
+                        ]
           ft :: UTCTime -> T.Text
           ft = T.pack . formatTime defaultTimeLocale "%c"
 
           taker :: Maybe Int -> S.Seq TimeLog -> S.Seq TimeLog
           taker Nothing  = id
           taker (Just n) = S.take n
+
+          nl :: T.Text -> T.Text
+          nl = (<> "\n")
 
 
